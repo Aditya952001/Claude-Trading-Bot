@@ -157,6 +157,51 @@ except ImportError:
             parsed = urllib.parse.urlparse(self.path)
             query = urllib.parse.parse_qs(parsed.query)
 
+            if "api" in query:
+                endpoint = query["api"][0]
+                if endpoint == "trades":
+                    self.send_response(200)
+                    self.send_header("Content-type", "application/json")
+                    self.end_headers()
+                    db_path = "data/bot_memory.sqlite3"
+                    trades_data = []
+                    if os.path.exists(db_path):
+                        try:
+                            conn = sqlite3.connect(db_path)
+                            conn.row_factory = sqlite3.Row
+                            cur = conn.cursor()
+                            rows = cur.execute("SELECT * FROM trades ORDER BY id ASC").fetchall()
+                            trades_data = [dict(r) for r in rows]
+                            conn.close()
+                        except Exception as e:
+                            trades_data = [{"error": str(e)}]
+                    self.wfile.write(json.dumps(trades_data).encode("utf-8"))
+                    return
+
+                elif endpoint == "post_mortems":
+                    self.send_response(200)
+                    self.send_header("Content-type", "application/json")
+                    self.end_headers()
+                    pm_path = "logs/loss_post_mortems.jsonl"
+                    pms = []
+                    if os.path.exists(pm_path):
+                        try:
+                            with open(pm_path, "r", encoding="utf-8") as f:
+                                for line in f:
+                                    if line.strip():
+                                        pms.append(json.loads(line))
+                        except Exception as e:
+                            pms = [{"error": str(e)}]
+                    self.wfile.write(json.dumps(pms).encode("utf-8"))
+                    return
+
+                elif endpoint == "logs":
+                    self.send_response(200)
+                    self.send_header("Content-type", "text/plain; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(get_recent_logs(200).encode("utf-8"))
+                    return
+
             # Handle 1-click mode switch from URL (e.g. /?mode=multiplier)
             msg = ""
             if "mode" in query:
