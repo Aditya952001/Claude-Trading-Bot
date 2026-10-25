@@ -1570,15 +1570,11 @@ async def _amain(args) -> None:
     await bot.run()
 
 
-def _acquire_instance_lock(path: Path = Path("data/bot.lock")):
-    """Refuse to start a second bot against the same journal/account.
-
-    Two concurrent instances produce two contracts on the same symbol in the
-    same minute (the journal has such pairs: stpRNG 2026-10-18 06:03, 1HZ50V
-    2026-10-22 15:01) and duplicate every log line. O_EXCL makes the check
-    atomic, so a race between two starts cannot both win.
-    """
+def _acquire_instance_lock(path: Path = Path("data/bot.lock"), force: bool = False):
+    """Refuse to start a second bot against the same journal/account."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    if force:
+        path.unlink(missing_ok=True)
     for _ in range(2):
         try:
             fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
@@ -1612,13 +1608,14 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Deriv autonomous trading bot")
     ap.add_argument("--mode", choices=["multiplier", "rise_fall", "hybrid"], default=None,
                     help="Trading mode: 'multiplier' (only multipliers), 'rise_fall' (only fixed expiry), 'hybrid' (both)")
+    ap.add_argument("--force-lock", action="store_true", help="force overwrite any existing lock file")
     ap.add_argument("--preflight", action="store_true", help="connect, validate, exit")
     ap.add_argument("--dry-run", action="store_true", help="evaluate everything, send no orders")
     ap.add_argument("--log-level", default="INFO")
     args = ap.parse_args()
 
     # Preflight is read-only; it may run alongside a live instance.
-    lock = None if args.preflight else _acquire_instance_lock()
+    lock = None if args.preflight else _acquire_instance_lock(force=args.force_lock)
     if lock is None and not args.preflight:
         raise SystemExit(1)
     try:

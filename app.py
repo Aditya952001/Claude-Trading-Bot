@@ -40,18 +40,33 @@ def start_bot_process(mode=None):
             except Exception:
                 pass
 
-    # Clear stale instance locks
+    # Clear stale instance locks unconditionally
     for lock_path in ("data/bot.lock", "data/bot_memory.sqlite3-wal", "STOP_AFTER_TRADE"):
-        if lock_path == "STOP_AFTER_TRADE" and os.path.exists(lock_path):
-            try: os.unlink(lock_path)
-            except Exception: pass
+        if os.path.exists(lock_path):
+            try:
+                os.unlink(lock_path)
+            except Exception:
+                pass
 
-    cmd = [sys.executable, "main.py", "--mode", active_mode]
+    cmd = [sys.executable, "main.py", "--mode", active_mode, "--force-lock"]
     os.makedirs("logs", exist_ok=True)
     log_file = open("logs/bot.log", "a")
     bot_process = subprocess.Popen(cmd, stdout=log_file, stderr=subprocess.STDOUT)
     print(f"Trading bot started in [{active_mode.upper()}] mode with PID {bot_process.pid}")
     return f"Bot running in [{active_mode.upper()}] mode (PID {bot_process.pid})"
+
+def bot_supervisor():
+    """Continuous watchdog to ensure bot stays alive 24/7."""
+    time.sleep(10)
+    while True:
+        try:
+            if bot_process is None or bot_process.poll() is not None:
+                exit_code = bot_process.poll() if bot_process else "None"
+                print(f"[WATCHDOG] Bot process down (code: {exit_code}). Auto-restarting in {active_mode} mode...")
+                start_bot_process(active_mode)
+        except Exception as e:
+            print(f"[WATCHDOG] Exception: {e}")
+        time.sleep(10)
 
 def get_recent_logs(lines=40):
     log_path = "logs/bot.log"
@@ -81,8 +96,9 @@ def get_trade_summary():
     except Exception as e:
         return f"Error querying database: {e}"
 
-# Start bot initially in background thread
+# Start bot initially in background thread with supervisor watchdog
 threading.Thread(target=start_bot_process, daemon=True).start()
+threading.Thread(target=bot_supervisor, daemon=True).start()
 
 # Web Server (Listens on Render $PORT or standard 7860/10000)
 port = int(os.environ.get("PORT", 7860))
@@ -151,15 +167,22 @@ except ImportError:
             self.send_response(200)
             self.send_header("Content-type", "text/html; charset=utf-8")
             self.end_headers()
-            logs = get_recent_logs(35)
+            logs = get_recent_logs(40)
             trades = get_trade_summary()
+            is_running = bot_process is not None and bot_process.poll() is None
+            if is_running:
+                status_badge = f"<span style='color: #4ade80; font-weight: bold;'>🟢 ACTIVE & SCANNING (PID: {bot_process.pid})</span>"
+            else:
+                code = bot_process.poll() if bot_process else "None"
+                status_badge = f"<span style='color: #f87171; font-weight: bold;'>🔴 RESTARTING (Exit code: {code})</span>"
 
             html = f"""
             <!DOCTYPE html>
             <html>
             <head>
-                <title>Deriv Trading Bot</title>
+                <title>Deriv Trading Bot (Live)</title>
                 <meta name="viewport" content="width=device-width, initial-scale=1">
+                <meta http-equiv="refresh" content="25">
                 <style>
                     body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; background: #0f172a; color: #f8fafc; padding: 20px; }}
                     .btn {{ display: inline-block; padding: 10px 18px; margin: 5px; font-weight: bold; border-radius: 6px; text-decoration: none; color: white; }}
@@ -167,12 +190,12 @@ except ImportError:
                     .btn-mult {{ background: #7c3aed; }}
                     .btn-hyb {{ background: #059669; }}
                     .btn:hover {{ opacity: 0.85; }}
-                    pre {{ background: #1e293b; padding: 15px; border-radius: 8px; overflow-x: auto; }}
+                    pre {{ background: #1e293b; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.4; }}
                 </style>
             </head>
             <body>
                 <h2>🚀 Deriv Autonomous Trading Bot</h2>
-                <p>Current Active Mode: <strong style="color: #38bdf8; text-transform: uppercase;">{active_mode}</strong> (PID: {bot_process.pid if bot_process else 'starting'})</p>
+                <p>Status: {status_badge} | Mode: <strong style="color: #38bdf8; text-transform: uppercase;">{active_mode}</strong></p>
                 {msg}
                 <div style="margin: 20px 0;">
                     <strong>Switch Mode (1-Click):</strong><br>
@@ -182,7 +205,7 @@ except ImportError:
                 </div>
                 <h3>📊 Recent Trades:</h3>
                 <pre>{trades}</pre>
-                <h3>📜 Live Console Logs:</h3>
+                <h3>📜 Live Console Logs (Auto-refresh 25s):</h3>
                 <pre>{logs}</pre>
             </body>
             </html>
