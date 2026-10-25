@@ -1,0 +1,24 @@
+name: 24/7 Keep Awake (Render Bot)
+
+on:
+  schedule:
+    # Runs every 10 minutes to prevent Render free instance spin-down
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  keep_alive:
+    name: Ping Render Bot
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send HTTP Ping to Render Bot
+        run: |
+          URL="https://claude-trading-bot-kc7x.onrender.com"
+          echo "Pinging $URL at $(date -u)..."
+          HTTP_STATUS=$(curl -s -L -o /dev/null -w "%{http_code}" --max-time 30 "$URL")
+          echo "HTTP Response Status: $HTTP_STATUS"
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 400 ]; then
+            echo "Render bot is awake and running 24/7! ✅"
+          else
+            echo "Warning: Response code $HTTP_STATUS received"
+          fi
