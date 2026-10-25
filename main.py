@@ -387,15 +387,14 @@ class TradingBot:
                             "the other will run alone.",
                             len(mult_syms), len(rf_syms))
 
-    def _recover_open_trades(self) -> None:
-        """Re-attach contracts that were open when we last stopped.
-
-        Each contract goes back to the book that owns its contract type, so a
-        Rise/Fall position can never be settled against the Multiplier ledger
-        (or vice versa) after a restart.
+    async def _recover_open_trades(self) -> None:
+        """Re-attach contracts that were open when we last stopped,
+        reconciling both local store and live broker portfolio.
         """
+        known_cids = set()
         for t in self.store.open_trades():
             cid = t["contract_id"]
+            known_cids.add(cid)
             ctype = t.get("contract_type", "multiplier") or "multiplier"
             self._book_for(ctype).open_positions[cid] = OpenPosition(
                 cid, t["symbol"], t["risk_amount"], t["stake"], ctype)
@@ -417,6 +416,58 @@ class TradingBot:
                 contract_type=ctype,
             )
 
+        # 2. Broker portfolio reconciliation (critical for cloud container restarts)
+        try:
+            broker_contracts = await self.client.portfolio()
+            for c in broker_contracts:
+                cid = c.get("contract_id")
+                if not cid or cid in known_cids:
+                    continue
+                known_cids.add(cid)
+                sym = c.get("underlying_symbol", "")
+                ctype_raw = c.get("contract_type", "")
+                ctype = "rise_fall" if ctype_raw in ("CALL", "PUT") else "multiplier"
+                direction = "long" if "UP" in ctype_raw or ctype_raw == "CALL" else "short"
+                stake = float(c.get("buy_price", 1.0))
+
+                log.info("Adopting orphaned broker contract %s on %s (%s, %s)",
+                         cid, sym, ctype, direction)
+
+                self._book_for(ctype).open_positions[cid] = OpenPosition(
+                    cid, sym, stake, stake, ctype
+                )
+                self._active_trackers[cid] = ActiveTradeTracker(
+                    contract_id=cid,
+                    symbol=sym,
+                    direction=direction,
+                    stake=stake,
+                    entry_price=0.0,
+                    entry_time=float(c.get("purchase_time", time.time())),
+                    contract_type=ctype,
+                )
+                try:
+                    self.store.record_entry(
+                        contract_id=cid,
+                        symbol=sym,
+                        asset_class="synthetic",
+                        direction=direction,
+                        stake=stake,
+                        multiplier=int(c.get("shortcode", "").split("_")[3]) if "_" in c.get("shortcode", "") else 100,
+                        risk_amount=stake,
+                        sl_amount=0.40,
+                        tp_amount=0.50,
+                        regime="trend",
+                        confidence=0.8,
+                        score=4.0,
+                        indicators={},
+                        components={},
+                        contract_type=ctype,
+                    )
+                except Exception:
+                    pass
+        except Exception as exc:
+            log.warning("Could not reconcile broker portfolio on startup: %s", exc)
+
     async def _startup(self) -> None:
         await self.preflight()
         if not self.symbols:
@@ -435,8 +486,8 @@ class TradingBot:
             book.roll_day_if_needed(balance)
             book.reconcile_equity(balance)
 
-        # Recover trades that were open when we last stopped
-        self._recover_open_trades()
+        # Recover trades that were open when we last stopped (local + broker)
+        await self._recover_open_trades()
         for cid, tracker in list(self._active_trackers.items()):
             await self._track_contract(cid)
             log.info("Re-attached to open contract %s (%s, %s)",
