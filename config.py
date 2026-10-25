@@ -300,11 +300,13 @@ class Config:
     def from_env(cls) -> "Config":
         env = Environment(os.getenv("DERIV_ENV", "demo").lower())
         base_url = os.getenv("DERIV_WS_URL", DerivConfig.ws_base_url)
+        app_id = os.getenv("DERIV_APP_ID", "34DyB1Yk9MY6apfuxbUQV").strip().strip('"').strip("'")
+        api_token = os.getenv("DERIV_API_TOKEN", "").strip().strip('"').strip("'")
         deriv = DerivConfig(
-            app_id=os.getenv("DERIV_APP_ID", "1089"),
-            api_token=os.getenv("DERIV_API_TOKEN", ""),
+            app_id=app_id,
+            api_token=api_token,
             environment=env,
-            live_confirmation=os.getenv("DERIV_LIVE_CONFIRMATION", ""),
+            live_confirmation=os.getenv("DERIV_LIVE_CONFIRMATION", "").strip(),
             ws_base_url=base_url,
         )
         risk = RiskConfig(

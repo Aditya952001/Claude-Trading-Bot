@@ -13,9 +13,15 @@ import sqlite3
 import urllib.parse
 import pandas as pd
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 # Global state
 bot_process = None
-active_mode = os.getenv("TRADE_MODE", "rise_fall").strip().lower()
+active_mode = os.getenv("TRADE_MODE", "hybrid").strip().lower()
 
 def start_bot_process(mode=None):
     global bot_process, active_mode
