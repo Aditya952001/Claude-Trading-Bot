@@ -33,11 +33,21 @@ from config import StrategyConfig
 COMPONENTS = ("trend", "cross", "rsi", "bbands", "macd")
 
 # Empirical Toxic / Defective instruments excluded across all trading books:
-# - 1HZ15V: 14% win rate, -$3.36 loss across backtests
-# - cryBTCUSD & cryETHUSD: high crypto spread friction causes immediate stop-outs on 1m bars
-# - stpRNG4 & stpRNG5: discrete step jumps with <25% win rate
-# - CRASH50: 0% win rate, extreme spike noise
-TOXIC_SYMBOLS = frozenset({"1HZ15V", "CRYBTCUSD", "CRYETHUSD", "STPRNG4", "STPRNG5", "CRASH50"})
+# - Boom & Crash indices: Asymmetric spike dynamics cause continuous drift and stagnation cuts (-$0.18)
+# - 1HZ indices: 1-second hyper-noise whipsaws 5m binaries and settles OTM
+# - crypto: high spread friction and weekend volatility
+# - Step indices: discrete jump discontinuities with poor trend follow-through
+TOXIC_SYMBOLS = frozenset({
+    # Boom & Crash (multipliers and rise/fall incompatible)
+    "BOOM50", "BOOM150N", "BOOM300N", "BOOM500", "BOOM600", "BOOM900", "BOOM1000",
+    "CRASH50", "CRASH150N", "CRASH300N", "CRASH500", "CRASH600", "CRASH900", "CRASH1000",
+    # 1-Second micro-noise synthetics
+    "1HZ10V", "1HZ15V", "1HZ25V", "1HZ30V", "1HZ50V", "1HZ75V", "1HZ90V", "1HZ100V",
+    # Crypto
+    "CRYBTCUSD", "CRYETHUSD",
+    # Step indices
+    "STPRNG", "STPRNG2", "STPRNG3", "STPRNG4", "STPRNG5"
+})
 EXCLUDED_RF_SYMBOLS = frozenset({"STPRNG4"})
 
 
@@ -286,30 +296,14 @@ class StrategyEngine:
         # High-Conviction Confluence Entry (req_score >= 3.5 requires >=4 concordant indicators):
         req_score = max(3.5, float(params.min_score))
 
-        # Dynamic BB and RSI bounds for LONGS
-        if "1HZ" in symbol.upper():
-            max_bb_long = 0.74 if adx_val >= 28.0 else 0.68
-            max_rsi_long = 60.0 if adx_val >= 28.0 else 57.0
-        elif adx_val >= 30.0:
-            max_bb_long = 0.78  # Strong trend: allow slightly higher BB
-            max_rsi_long = 63.0  # Strong trend: allow slightly extended RSI
-        elif adx_val >= 25.0:
-            max_bb_long = 0.74
-            max_rsi_long = 62.0
-        else:
-            max_bb_long = 0.70
-            max_rsi_long = 60.0
+        # Strict Bollinger Band ceiling to prevent buying overextended tops (like 1HZ30V loss at bb_pctb=0.7336):
+        # Long entries MUST have room to expand. Never enter long if price is already in the top 38% of BB (%B > 0.62).
+        max_bb_long = 0.62
+        max_rsi_long = 60.0
 
-        # Short BB floor — bottom-bounce trap protection
-        if adx_val >= 30.0:
-            min_bb_short = 0.18
-            min_rsi_short = 28.0
-        elif adx_val >= 25.0:
-            min_bb_short = 0.32
-            min_rsi_short = 33.0
-        else:
-            min_bb_short = 0.38
-            min_rsi_short = 35.0
+        # Short BB floor — never short if price is already near the bottom (bb_pctb < 0.38)
+        min_bb_short = 0.38
+        min_rsi_short = 40.0
 
         # Learned/global caps
         max_rsi_long = min(max_rsi_long, float(params.rsi_long_max))
@@ -326,8 +320,8 @@ class StrategyEngine:
                 and last["close"] >= last["ema_higher_tf"]
                 and last["rsi"] <= max_rsi_long
                 and 33.0 <= last["rsi"]
-                and 0.12 <= last["bb_pctb"] <= max_bb_long
-                and not (last["bb_pctb"] > 0.70 and last["rsi"] > 58.0)
+                and 0.15 <= last["bb_pctb"] <= max_bb_long
+                and not (last["bb_pctb"] > 0.60 and last["rsi"] > 57.0)
                 and (last["macd_hist"] > 0 and macd_rel >= 0.003)
                 and last["close"] > last["open"]):
             direction = "long"

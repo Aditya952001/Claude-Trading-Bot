@@ -78,56 +78,19 @@ class SymbolConfig:
 # Deriv's `contracts_for` at startup and automatically skips any symbol that is
 # closed today (e.g. weekend forex) or doesn't match.
 DEFAULT_SYMBOLS: Tuple[SymbolConfig, ...] = (
-    # Continuous Volatility Indices (24/7)
+    # Continuous Volatility Indices (24/7) - Highest statistical predictability & smoothness
     SymbolConfig("R_10", AssetClass.SYNTHETIC, multiplier=400),
     SymbolConfig("R_25", AssetClass.SYNTHETIC, multiplier=160),
     SymbolConfig("R_50", AssetClass.SYNTHETIC, multiplier=80),
     SymbolConfig("R_75", AssetClass.SYNTHETIC, multiplier=50),
     SymbolConfig("R_100", AssetClass.SYNTHETIC, multiplier=40),
 
-    # 1-Second Volatility Indices (24/7)
-    SymbolConfig("1HZ10V", AssetClass.SYNTHETIC, multiplier=400),
-    SymbolConfig("1HZ15V", AssetClass.SYNTHETIC, multiplier=300),
-    SymbolConfig("1HZ25V", AssetClass.SYNTHETIC, multiplier=160),
-    SymbolConfig("1HZ30V", AssetClass.SYNTHETIC, multiplier=140),
-    SymbolConfig("1HZ50V", AssetClass.SYNTHETIC, multiplier=80),
-    SymbolConfig("1HZ75V", AssetClass.SYNTHETIC, multiplier=50),
-    SymbolConfig("1HZ90V", AssetClass.SYNTHETIC, multiplier=45),
-    SymbolConfig("1HZ100V", AssetClass.SYNTHETIC, multiplier=40),
-
-    # Cryptocurrencies (24/7)
-    SymbolConfig("cryBTCUSD", AssetClass.CRYPTO, multiplier=100),
-    SymbolConfig("cryETHUSD", AssetClass.CRYPTO, multiplier=100),
-
-    # Crash & Boom Indices (24/7)
-    SymbolConfig("BOOM50", AssetClass.SYNTHETIC, multiplier=500),
-    SymbolConfig("BOOM150N", AssetClass.SYNTHETIC, multiplier=300),
-    SymbolConfig("BOOM300N", AssetClass.SYNTHETIC, multiplier=20),
-    SymbolConfig("BOOM500", AssetClass.SYNTHETIC, multiplier=100),
-    SymbolConfig("BOOM600", AssetClass.SYNTHETIC, multiplier=100),
-    SymbolConfig("BOOM900", AssetClass.SYNTHETIC, multiplier=100),
-    SymbolConfig("BOOM1000", AssetClass.SYNTHETIC, multiplier=100),
-    SymbolConfig("CRASH50", AssetClass.SYNTHETIC, multiplier=500),
-    SymbolConfig("CRASH150N", AssetClass.SYNTHETIC, multiplier=300),
-    SymbolConfig("CRASH300N", AssetClass.SYNTHETIC, multiplier=20),
-    SymbolConfig("CRASH500", AssetClass.SYNTHETIC, multiplier=100),
-    SymbolConfig("CRASH600", AssetClass.SYNTHETIC, multiplier=100),
-    SymbolConfig("CRASH900", AssetClass.SYNTHETIC, multiplier=100),
-    SymbolConfig("CRASH1000", AssetClass.SYNTHETIC, multiplier=100),
-
-    # Jump Indices (24/7)
+    # Jump Indices (24/7) - Clean trend following with strong momentum
     SymbolConfig("JD10", AssetClass.SYNTHETIC, multiplier=100),
     SymbolConfig("JD25", AssetClass.SYNTHETIC, multiplier=50),
     SymbolConfig("JD50", AssetClass.SYNTHETIC, multiplier=20),
     SymbolConfig("JD75", AssetClass.SYNTHETIC, multiplier=15),
     SymbolConfig("JD100", AssetClass.SYNTHETIC, multiplier=10),
-
-    # Step Indices (24/7)
-    SymbolConfig("stpRNG", AssetClass.SYNTHETIC, multiplier=750),
-    SymbolConfig("stpRNG2", AssetClass.SYNTHETIC, multiplier=400),
-    SymbolConfig("stpRNG3", AssetClass.SYNTHETIC, multiplier=300),
-    SymbolConfig("stpRNG4", AssetClass.SYNTHETIC, multiplier=200),
-    SymbolConfig("stpRNG5", AssetClass.SYNTHETIC, multiplier=100),
 
     # Major Forex Pairs & Metals
     SymbolConfig("frxEURUSD", AssetClass.FOREX, multiplier=100),
