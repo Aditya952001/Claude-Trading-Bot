@@ -6,6 +6,7 @@ Deriv trading bot running 24/7 in the background with dynamic Mode Switching.
 """
 import os
 import sys
+import json
 import subprocess
 import threading
 import time
