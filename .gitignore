@@ -1,0 +1,29 @@
+# Environments and Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+env/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# Logs and Data
+logs/
+*.log
+data/
+*.pkl
+KILL_SWITCH
+
+# OS & IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+

@@ -1,0 +1,6 @@
+# Requires Python >= 3.12 (pandas-ta 0.4.x). Tested: Python 3.12, pandas 3.0, numpy 2.2.
+websockets>=12.0
+pandas>=2.2
+numpy>=1.26
+pandas-ta>=0.4.67b0
+python-dotenv>=1.0
