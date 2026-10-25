@@ -207,8 +207,8 @@ class RiskConfig:
 
     # Dynamic Profit Booking & Real-Time AI Trailing System (Targeting +$0.15 to +$0.50+ runners)
     dynamic_profit_enabled: bool = True
-    green_shield_trigger_usd: float = 0.150  # Activates zero-loss green shield once profit touches +$0.150
-    min_profit_take_usd: float = 0.180       # Minimum profit threshold to activate dynamic lock (+70% floor)
+    green_shield_trigger_usd: float = 0.200  # Activates zero-loss green shield once profit touches +$0.200
+    min_profit_take_usd: float = 0.220       # Minimum profit threshold to activate dynamic lock (+70% floor)
     breakeven_trigger_usd: float = 0.250     # Tier 1 runner lock threshold (locks in >= 75% of peak)
     trail_profit_fraction: float = 0.75      # Lock in at least 75% of peak profit on pullback
     early_exit_on_reversal: bool = True      # Close in green if momentum/candlestick reverses
@@ -217,8 +217,8 @@ class RiskConfig:
 
     # Dynamic Loss Management & Capital Protection (Breathing room for tick noise; stops below noise floor)
     dynamic_loss_enabled: bool = True
-    max_loss_cut_usd: float = 0.280          # Hard software loss cap: cuts trade at -$0.28 max (well before $0.40 broker SL)
-    max_bars_in_loss: int = 5                # Stagnant loser cut: exit if trade stays in loss for 5 consecutive bars
+    max_loss_cut_usd: float = 0.200          # Tightened software loss cap: cuts trade at -$0.20 max
+    max_bars_in_loss: int = 4                # Stagnant loser cut: exit if trade stays in loss for 4 consecutive bars
     early_cut_on_invalidation: bool = True   # Cut if candle breaks decisively contrary to EMA trend
     cut_on_opposing_signal: bool = True      # Cut immediately if an opposing trade signal is detected
     tighten_loss_bars: int = 3               # After 3 bars, tighten loss threshold
@@ -292,7 +292,7 @@ class Config:
     # allow-lists (comma separated). Empty means "all capable symbols".
     hybrid_isolated_risk: bool = True
     hybrid_block_cross_symbol: bool = True
-    hybrid_signal_priority: str = "multiplier"   # "multiplier" | "rise_fall"
+    hybrid_signal_priority: str = "rise_fall"   # "rise_fall" | "multiplier"
     hybrid_rf_symbols: Tuple[str, ...] = ()
     hybrid_mult_symbols: Tuple[str, ...] = ()
 
@@ -372,7 +372,7 @@ class Config:
                   in ("true", "1", "yes"),
                   hybrid_block_cross_symbol=os.getenv("HYBRID_BLOCK_CROSS_SYMBOL", "true").lower()
                   in ("true", "1", "yes"),
-                  hybrid_signal_priority=os.getenv("HYBRID_SIGNAL_PRIORITY", "multiplier").strip().lower(),
+                  hybrid_signal_priority=os.getenv("HYBRID_SIGNAL_PRIORITY", "rise_fall").strip().lower(),
                   hybrid_rf_symbols=tuple(
                       s.strip() for s in os.getenv("HYBRID_RF_SYMBOLS", "").split(",") if s.strip()),
                   hybrid_mult_symbols=tuple(

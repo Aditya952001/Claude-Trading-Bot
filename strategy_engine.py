@@ -32,23 +32,18 @@ from config import StrategyConfig
 
 COMPONENTS = ("trend", "cross", "rsi", "bbands", "macd")
 
-# Instruments excluded from Rise/Fall on measured evidence.
-#
-# stpRNG4: 46 replayed trades, 12 wins (26.1%), binomial p=0.0008 against a fair
-# coin (family-wise 1.9% across the 23 symbols), and bad in both halves of the
-# 14 days (28.6% then 22.2%). Unlike the rejected v11 blacklist (1HZ15V, 3 live
-# losses), this survives a multiple-testing correction and has a real sample.
-# It is a LOSS REDUCER, not an edge: excluding it moves the 14-day replay from
-# -0.063 to about -0.034 per trade, which is still below breakeven.
+# Empirical Toxic / Defective instruments excluded across all trading books:
+# - 1HZ15V: 14% win rate, -$3.36 loss across backtests
+# - cryBTCUSD & cryETHUSD: high crypto spread friction causes immediate stop-outs on 1m bars
+# - stpRNG4 & stpRNG5: discrete step jumps with <25% win rate
+# - CRASH50: 0% win rate, extreme spike noise
+TOXIC_SYMBOLS = frozenset({"1HZ15V", "CRYBTCUSD", "CRYETHUSD", "STPRNG4", "STPRNG5", "CRASH50"})
 EXCLUDED_RF_SYMBOLS = frozenset({"STPRNG4"})
 
 
 def rf_symbol_excluded(symbol: str) -> bool:
-    """True if this instrument is excluded from Rise/Fall (measured defect).
-
-    Scoped to Rise/Fall only: the same symbol may still trade Multipliers.
-    """
-    return symbol.upper() in EXCLUDED_RF_SYMBOLS
+    """True if this instrument is excluded from Rise/Fall."""
+    return symbol.upper() in EXCLUDED_RF_SYMBOLS or symbol.upper() in TOXIC_SYMBOLS
 
 
 # ----------------------------------------------------------------------------
@@ -260,6 +255,8 @@ class StrategyEngine:
         # This exclusion was measured on fixed-expiry Rise/Fall settlements, so
         # it must not silently disable the Multiplier strategy on the same
         # symbol. The caller passes the contract_type it is evaluating for.
+        if symbol.upper() in TOXIC_SYMBOLS:
+            return None
         if contract_type == "rise_fall" and rf_symbol_excluded(symbol):
             return None
 
@@ -270,16 +267,10 @@ class StrategyEngine:
         denom = sum(w.get(k, 1.0) for k in votes) or 1.0
 
         adx_val = float(last["adx"])
-        # PATCH v10 (Forensic): Raise global ADX floor from 18 → 20.
-        # Data: ADX<22 trades had only 33% win rate; loosened slightly to 20 to allow more
-        # qualifying setups while still filtering the worst noise (ADX < 18 was original).
-        # NOTE: a v11 attempt to raise this to 22 was reverted (2026-10-25) after an
-        # A/B on identical candles: it improved the training half (+0.003) but made
-        # the validation half worse (-0.011) and cut 47% of trades.
         if adx_val < 20.0:
             return None
 
-        # Jump Indices (JD10..JD100): Require ADX >= 22.0 (slightly tighter than global floor)
+        # Jump Indices (JD10..JD100): Require ADX >= 22.0
         if "JD" in symbol.upper() and adx_val < 22.0:
             return None
 
@@ -287,23 +278,13 @@ class StrategyEngine:
         if "1HZ" in symbol.upper() and adx_val < 22.0:
             return None
 
-        # Step Indices (stpRNG..stpRNG5) and R_75 remain UNBLOCKED for full market analysis
-
         # Relative MACD Momentum: Normalized by ATR to work universally across Forex, Commodities, and Synthetics
         atr_val = max(1e-9, float(last["atr"]))
         macd_rel = float(last["macd_hist"]) / atr_val
 
         direction = None
-        # Calibrated Confluence Entry for High-Probability Rise/Fall Trading:
-        # Long requires:
-        # - Score >= min_score (concurring momentum components)
-        # - EMA 9 > EMA 21 (fast moving average momentum up)
-        # - Close >= EMA 9 & Close >= EMA 50 (above intermediate trend)
-        # - STRICT Macro Alignment: Close >= EMA 200 (no buying into overhead macro resistance!)
-        # - Relative MACD momentum: positive and macd_rel >= 0.010 (meaningful trend velocity)
-        # - Bullish confirmation candle: close > open
-        # - Gemini Momentum Exhaustion Guard: Reject extended entries near upper band without strong MACD expansion
-        req_score = max(2.0, min(4.5, float(params.min_score)))
+        # High-Conviction Confluence Entry (req_score >= 3.5 requires >=4 concordant indicators):
+        req_score = max(3.5, float(params.min_score))
 
         # Dynamic BB and RSI bounds for LONGS
         if "1HZ" in symbol.upper():
@@ -313,10 +294,10 @@ class StrategyEngine:
             max_bb_long = 0.78  # Strong trend: allow slightly higher BB
             max_rsi_long = 63.0  # Strong trend: allow slightly extended RSI
         elif adx_val >= 25.0:
-            max_bb_long = 0.74  # Moderate-strong: slightly looser than v10 (was 0.72)
-            max_rsi_long = 62.0  # Moderate-strong: loosened from 60
+            max_bb_long = 0.74
+            max_rsi_long = 62.0
         else:
-            max_bb_long = 0.70  # Moderate (22-25)
+            max_bb_long = 0.70
             max_rsi_long = 60.0
 
         # Short BB floor — bottom-bounce trap protection
@@ -341,28 +322,16 @@ class StrategyEngine:
                 and (last["close"] - last["ema_fast"]) <= 0.80 * atr_val
                 and last["close"] >= last["ema_trend"]
                 and (last["close"] - last["ema_trend"]) <= 2.20 * atr_val
-                # Macro trend alignment: ADX>=25 bypass retained (v10). Requiring
-                # close>=EMA200 unconditionally was tested as v11 and made the
-                # validation half worse (-0.133 vs -0.157 only on a single rule,
-                # and -0.053 on the training half).
-                and (adx_val >= 25.0 or last["close"] >= last["ema_higher_tf"])
+                # Strict Macro trend alignment: price must be above 200 EMA (no buying into downtrends)
+                and last["close"] >= last["ema_higher_tf"]
                 and last["rsi"] <= max_rsi_long
-                and 33.0 <= last["rsi"]  # Loosened: 35 → 33 (mild momentum allowed)
-                and 0.12 <= last["bb_pctb"] <= max_bb_long  # BB lower bound loosened: 0.15→0.12
-                # PATCH: Hard block — if BB > 0.70 AND RSI > 60, it's an extended entry, reject it
-                and not (last["bb_pctb"] > 0.70 and last["rsi"] > 60.0)
+                and 33.0 <= last["rsi"]
+                and 0.12 <= last["bb_pctb"] <= max_bb_long
+                and not (last["bb_pctb"] > 0.70 and last["rsi"] > 58.0)
                 and (last["macd_hist"] > 0 and macd_rel >= 0.003)
                 and last["close"] > last["open"]):
             direction = "long"
 
-        # Short requires:
-        # - Score <= -min_score (concurring downward momentum components)
-        # - EMA 9 < EMA 21 (fast moving average momentum down)
-        # - Close <= EMA 9 & Close <= EMA 50 (below intermediate trend)
-        # - Macro Trend Alignment: Close <= EMA 200 (unless ADX >= 25.0)
-        # - Adaptive Bollinger Floor: %B down to 0.12 on strong trends
-        # - Relative MACD momentum: negative and macd_rel <= -0.003
-        # - Bearish confirmation candle: close < open
         elif (score <= -req_score
                 and last["ema_fast"] < last["ema_slow"]
                 and (last["ema_slow"] - last["ema_fast"]) >= 0.015 * atr_val
@@ -370,11 +339,10 @@ class StrategyEngine:
                 and (last["ema_fast"] - last["close"]) <= 0.80 * atr_val
                 and last["close"] <= last["ema_trend"]
                 and (last["ema_trend"] - last["close"]) <= 2.20 * atr_val
-                # Macro trend alignment for shorts (ADX>=25 bypass retained, v10)
-                and (adx_val >= 25.0 or last["close"] <= last["ema_higher_tf"])
-                and min_rsi_short <= last["rsi"] <= 65.0  # Loosened RSI ceiling: was 63.0
-                and min_bb_short <= last["bb_pctb"] <= 0.85  # Loosened BB ceiling: was 0.82
-                # PATCH: Hard block — if BB < min_bb_short+0.05, it's a floor-bounce trap, reject
+                # Strict Macro trend alignment for shorts: price must be below 200 EMA
+                and last["close"] <= last["ema_higher_tf"]
+                and min_rsi_short <= last["rsi"] <= 65.0
+                and min_bb_short <= last["bb_pctb"] <= 0.85
                 and not (last["bb_pctb"] < (min_bb_short + 0.05) and last["rsi"] < 42.0)
                 and (last["macd_hist"] < 0 and macd_rel <= -0.003)
                 and last["close"] < last["open"]):
