@@ -266,7 +266,7 @@ class Config:
     # Rise/Fall asset policy. Forex/metal digitals pay ~0.79-0.82 with a spread,
     # i.e. a 55.5% breakeven on a 1-minute random walk; the backtest measured 40%
     # out-of-sample. They are excluded unless explicitly opted in.
-    rf_allowed_assets: Tuple[str, ...] = ("synthetic",)
+    rf_allowed_assets: Tuple[str, ...] = ("synthetic", "forex", "commodities")
     # The LLM pre-trade veto is advisory by default (log-only). It added latency
     # (429s) and its rules were fitted to a 65-trade sample with no OOS edge.
     gemini_veto_enabled: bool = False
@@ -364,7 +364,7 @@ class Config:
                   rise_fall_duration_unit=rf_unit,
                   rf_allowed_assets=tuple(
                       a.strip().lower() for a in
-                      os.getenv("RF_ALLOWED_ASSETS", "synthetic").split(",") if a.strip()
+                      os.getenv("RF_ALLOWED_ASSETS", "synthetic,forex,commodities").split(",") if a.strip()
                   ),
                   gemini_veto_enabled=os.getenv("GEMINI_VETO_ENABLED", "false").lower()
                   in ("true", "1", "yes"),
