@@ -193,6 +193,40 @@ class MemoryStore:
         with self._lock:
             return [dict(r) for r in self._db.execute("SELECT * FROM trades WHERE status='open'")]
 
+    def sync_broker_transactions(self, transactions: List[dict]) -> int:
+        """Reconciles closed transactions from Deriv profit table on startup.
+        Ensures stats, trade counts, and daily PnL persist across server restarts."""
+        inserted = 0
+        with self._lock, self._db:
+            for t in transactions:
+                cid = t.get("contract_id")
+                if not cid:
+                    continue
+                existing = self._db.execute("SELECT id FROM trades WHERE contract_id=?", (cid,)).fetchone()
+                if existing:
+                    continue
+                sym = t.get("underlying_symbol", "")
+                buy = float(t.get("buy_price", 1.0))
+                sell = float(t.get("sell_price", 0.0))
+                pnl = round(sell - buy, 2)
+                p_time = float(t.get("purchase_time", 0))
+                s_time = float(t.get("sell_time", p_time))
+                ctype_raw = str(t.get("contract_type", "")).lower()
+                ctype = "rise_fall" if ("call" in ctype_raw or "put" in ctype_raw) else "multiplier"
+                direction = "long" if ("call" in ctype_raw or "up" in ctype_raw) else "short"
+                self._db.execute(
+                    """
+                    INSERT OR IGNORE INTO trades (
+                        contract_id, symbol, asset_class, direction, status,
+                        entry_time, exit_time, entry_price, exit_price,
+                        stake, multiplier, risk_amount, pnl, score, contract_type
+                    ) VALUES (?, ?, ?, ?, 'closed', ?, ?, 0.0, 0.0, ?, 0, ?, ?, 4.0, ?)
+                    """,
+                    (cid, sym, "synced", direction, p_time, s_time, buy, buy, pnl, ctype)
+                )
+                inserted += 1
+        return inserted
+
     def recent_closed(self, limit: int) -> List[dict]:
         with self._lock:
             rows = self._db.execute(
@@ -321,7 +355,8 @@ class MemoryStore:
         when the day had no trades).
         """
         offset = max(0, int(offset))
-        day_expr = "date('now')" if offset == 0 else f"date('now', '-{offset} day')"
+        # Indian Standard Time (IST, UTC+5:30): day boundary flips at 12:00 AM midnight IST
+        day_expr = "date('now', '+330 minutes')" if offset == 0 else f"date('now', '+330 minutes', '-{offset} day')"
         time_col = "entry_time" if basis == "entry" else "COALESCE(exit_time, entry_time)"
         with self._lock:
             row = self._db.execute(
@@ -331,7 +366,7 @@ class MemoryStore:
                 "COALESCE(SUM(pnl), 0.0) AS pnl, "
                 f"{day_expr} AS day "
                 "FROM trades WHERE status='closed' AND pnl IS NOT NULL "
-                f"AND date({time_col}, 'unixepoch') = {day_expr}"
+                f"AND date({time_col}, 'unixepoch', '+330 minutes') = {day_expr}"
             ).fetchone()
         n = int(row["n"] or 0)
         wins = int(row["w"] or 0)

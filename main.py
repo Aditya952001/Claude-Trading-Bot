@@ -21,6 +21,7 @@ import os
 import signal
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field, replace
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -274,6 +275,26 @@ class TradingBot:
         allowed = tuple(a.lower() for a in (self.cfg.rf_allowed_assets or ()))
         return sc.asset_class.value.lower() in allowed
 
+    def _rf_session_allowed(self, sc: SymbolConfig) -> bool:
+        """Restricts Forex and Commodities Rise/Fall entries to London & NY liquid hours (13:00 to 22:30 IST).
+        Synthetics (Crash/Boom, Volatility indices) trade 24/7 without session restriction.
+        Multipliers trade 24/7 without session restriction.
+        """
+        asset_class = sc.asset_class.value.lower()
+        if asset_class not in ("forex", "commodities"):
+            return True
+
+        # Current IST time (UTC + 5 hours 30 minutes)
+        ist_now = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+        minute_of_day = ist_now.hour * 60 + ist_now.minute
+
+        # 13:00 IST is 13 * 60 = 780; 22:30 IST is 22 * 60 + 30 = 1350
+        in_window = (780 <= minute_of_day <= 1350)
+        if not in_window:
+            log.debug("%s: Rise/Fall paused outside London/NY window (13:00–22:30 IST; current %02d:%02d IST)",
+                      sc.symbol, ist_now.hour, ist_now.minute)
+        return in_window
+
     async def _validate_symbols(self) -> None:
         """Keep only symbols that are actively open today and supported under the selected trade_mode."""
         market_status = {}
@@ -468,6 +489,18 @@ class TradingBot:
         except Exception as exc:
             log.warning("Could not reconcile broker portfolio on startup: %s", exc)
 
+    async def _sync_recent_broker_trades(self) -> None:
+        """Reconciles closed contracts from Deriv profit table on startup.
+        Ensures daily PnL and trade counts survive container restarts/redeploys."""
+        try:
+            res = await self.client.request({"profit_table": 1, "description": 1, "limit": 100, "sort": "DESC"})
+            txs = res.get("profit_table", {}).get("transactions", [])
+            if txs:
+                count = self.store.sync_broker_transactions(txs)
+                log.info("Broker trade sync: Reconciled %d closed contracts from Deriv profit table", count)
+        except Exception as exc:
+            log.warning("Broker trade sync skipped: %s", exc)
+
     async def _startup(self) -> None:
         await self.preflight()
         if not self.symbols:
@@ -488,6 +521,7 @@ class TradingBot:
 
         # Recover trades that were open when we last stopped (local + broker)
         await self._recover_open_trades()
+        await self._sync_recent_broker_trades()
         for cid, tracker in list(self._active_trackers.items()):
             await self._track_contract(cid)
             log.info("Re-attached to open contract %s (%s, %s)",
@@ -765,13 +799,14 @@ class TradingBot:
             want_rise_fall = (sc.supports_rise_fall
                               and self._rf_asset_allowed(sc)
                               and not rf_symbol_excluded(symbol)
+                              and self._rf_session_allowed(sc)
                               and self._leg_enabled("rise_fall", symbol))
             log.debug("%s: HYBRID candidates mult=%s rf=%s", symbol,
                       want_multiplier, want_rise_fall)
         else:
             want_multiplier = (mode == TradeMode.MULTIPLIER) and sc.supports_multiplier
             want_rise_fall = (mode == TradeMode.RISE_FALL) and sc.supports_rise_fall \
-                and self._rf_asset_allowed(sc)
+                and self._rf_asset_allowed(sc) and self._rf_session_allowed(sc)
 
         if not want_multiplier and not want_rise_fall:
             log.debug("%s: signal generated but neither multiplier nor rise_fall is enabled for this symbol", symbol)
@@ -1486,7 +1521,7 @@ class TradingBot:
         except Exception as exc:
             log.debug("Audit balance fetch failed (%s); using derived equity", exc)
             bal = st.get("day_start_equity", 0.0) + st.get("realized_pnl_today", 0.0)
-        utc_time = time.strftime("%H:%M:%S UTC", time.gmtime())
+        ist_time = (datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)).strftime("%I:%M:%S %p IST")
         total = stats.get("total_trades", 0)
         wins = stats.get("wins", 0)
         losses = stats.get("losses", 0)
@@ -1512,10 +1547,10 @@ class TradingBot:
             f"\n╔══════════════════════════════════════════════════════════════════════════════╗\n"
             f"║                         LIVE ENGINE AUDIT UPDATE                             ║\n"
             f"╠══════════════════════════════════════════════════════════════════════════════╣\n"
-            f"║  Scan Engine Status: {utc_time} bar close nominal across {len(self.symbols)} symbols\n"
+            f"║  Scan Engine Status: {ist_time} bar close nominal across {len(self.symbols)} symbols\n"
             f"║  Active Open Contracts: {open_pos:<4}                                               \n"
             f"║  Current Account Balance: ${bal:.2f} USD                                      \n"
-            f"║  Today (opened, UTC, {day_label}): {total} Trades ({wins}W / {losses}L) | Win Rate: {wr:.1f}% | {day_pnl:+.2f} USD {pnl_mark}\n"
+            f"║  Today (opened, IST, {day_label}): {total} Trades ({wins}W / {losses}L) | Win Rate: {wr:.1f}% | {day_pnl:+.2f} USD {pnl_mark}\n"
             f"{carry_line}"
             f"║  Yesterday: {prev_str}\n"
             f"║  All-time Journal: {allt.get('total_trades', 0)} Trades ({allt.get('wins', 0)}W / {allt.get('losses', 0)}L) | Win Rate: {allt.get('win_rate', 0.0):.1f}% | {allt.get('pnl', 0.0):+.2f} USD\n"
@@ -1553,7 +1588,9 @@ class TradingBot:
         yesterday's result is never announced on its own. The marker is stored in
         the journal so restarts do not duplicate or skip the summary.
         """
-        today = time.strftime("%Y-%m-%d", time.gmtime())
+        # Indian Standard Time (IST, UTC+5:30): rollover check at 12:00 AM midnight IST
+        ist_now = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+        today = ist_now.strftime("%Y-%m-%d")
         now = time.time()
         if now - getattr(self, "_last_summary_check", 0.0) < 60:
             return

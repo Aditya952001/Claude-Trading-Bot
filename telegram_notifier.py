@@ -15,10 +15,16 @@ import logging
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Optional
 
 log = logging.getLogger("telegram")
+
+
+def _ist_now_str(fmt: str = "%I:%M:%S %p IST") -> str:
+    """Current timestamp formatted in Indian Standard Time (UTC+5:30)."""
+    ist = timezone(timedelta(hours=5, minutes=30))
+    return datetime.now(timezone.utc).astimezone(ist).strftime(fmt)
 
 
 def _fmt_day(day: Optional[Dict[str, Any]]) -> str:
@@ -154,26 +160,19 @@ class TelegramNotifier:
         adx_val = ind.get("adx", 0.0)
         rsi_val = ind.get("rsi", 0.0)
         pct_b = ind.get("bb_pctb", ind.get("pct_b", 0.0))
-        ema_f = ind.get("ema_fast", 0.0)
-        ema_s = ind.get("ema_slow", 0.0)
+        ist_time = _ist_now_str("%I:%M:%S %p IST")
 
         msg = (
             f"🚀 <b>TRADE OPENED [{contract_type}]</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"• <b>Asset:</b> <code>{symbol}</code>\n"
-            f"• <b>Direction:</b> {dir_emoji}\n"
-            f"• <b>Contract ID:</b> <code>#{cid}</code>\n"
-            f"• <b>Stake:</b> ${stake:.2f} USD\n"
-            f"• <b>Entry Spot:</b> <code>{entry_price:.4f}</code>\n"
-            f"• <b>Expiry Duration:</b> <b>{duration}{unit}</b>\n"
-            f"  <i>({reason})</i>\n"
-            f"• <b>Confluence Score:</b> {score:+.2f} / 5.0\n"
-            f"• <b>Indicators:</b>\n"
-            f"  - ADX: <code>{adx_val:.2f}</code> (Trend Strength)\n"
-            f"  - RSI: <code>{rsi_val:.1f}</code>\n"
-            f"  - Bollinger %B: <code>{pct_b:.3f}</code>\n"
-            f"  - EMA Fast/Slow: <code>{ema_f:.4f} / {ema_s:.4f}</code>\n"
-            f"⏱ <i>{datetime.now(timezone.utc).strftime('%H:%M:%S UTC')}</i>"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎯 <b>Asset:</b> <code>{symbol}</code>\n"
+            f"🧭 <b>Direction:</b> {dir_emoji}\n"
+            f"💵 <b>Stake:</b> ${stake:.2f} USD  |  ⏱ <b>Expiry:</b> {duration}{unit}\n"
+            f"📍 <b>Entry Spot:</b> <code>{entry_price:.4f}</code>\n"
+            f"⭐️ <b>Conviction Score:</b> {score:+.1f} / 5.0\n"
+            f"📊 <b>Market Context:</b> ADX <code>{adx_val:.1f}</code> | RSI <code>{rsi_val:.1f}</code> | %B <code>{pct_b:.2f}</code>\n"
+            f"⏰ <i>{ist_time} (Contract #{cid})</i>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━"
         )
         await self.send_message(msg)
 
@@ -198,47 +197,41 @@ class TelegramNotifier:
         balance = close_data.get("balance", 0.0)
         day_pnl = close_data.get("day_pnl", 0.0)
         yesterday = close_data.get("yesterday") or {}
-        settled = close_data.get("settled_today") or {}
-
+        ist_time = _ist_now_str("%I:%M:%S %p IST")
         is_win = pnl > 0
         if is_win:
             payout_pct = (pnl / stake * 100.0) if stake > 0 else 0.0
             header = f"✅ <b>TRADE WON (+{payout_pct:.1f}% Payout)</b>"
-            pnl_line = f"• <b>Realized PnL:</b> <b>+${pnl:.2f} USD</b> 💰"
+            pnl_line = f"💰 <b>Profit:</b> <b>+${pnl:.2f} USD</b>"
         else:
-            # Was hardcoded to "-$1.00 Stake" even when the stake was different.
-            header = (f"❌ <b>TRADE LOSS (-${abs(pnl):.2f} of "
-                      f"${stake:.2f} stake)</b>")
-            pnl_line = f"• <b>Realized PnL:</b> <b>-${abs(pnl):.2f} USD</b>"
+            header = f"❌ <b>TRADE LOSS (-${abs(pnl):.2f})</b>"
+            pnl_line = f"🔻 <b>Loss:</b> <b>-${abs(pnl):.2f} USD</b>"
 
-        streak_str = f"🔥 {win_streak} Consecutive Wins" if win_streak > 1 else ("1 Win" if win_streak == 1 else "Reset")
+        streak_str = f"🔥 {win_streak} in a row" if win_streak > 1 else ("1 Win" if win_streak == 1 else "Reset")
         dur_str = f"{int(duration_sec // 60)}m {int(duration_sec % 60)}s"
-        cash = _cash_line({"total_trades": total_trades, "wins": wins,
-                           "losses": losses, "pnl": day_pnl}, settled)
-        carry_line = f"• <b>{cash}</b>\n" if cash else ""
+        pnl_badge = "🟢" if day_pnl >= 0 else "🔴"
 
         msg = (
             f"{header}\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"• <b>Asset:</b> <code>{symbol}</code> ({direction})\n"
-            f"• <b>Contract ID:</b> <code>#{cid}</code>\n"
-            f"• <b>Entry ➔ Exit:</b> <code>{entry_price:.4f}</code> ➔ <code>{exit_price:.4f}</code>\n"
-            f"• <b>Hold Time:</b> {dur_str}\n"
-            f"{pnl_line}\n"
-            f"• <b>Active Win Streak:</b> {streak_str}\n"
-            f"• <b>Updated Balance:</b> <b>${balance:.2f} USD</b>\n"
-            f"• <b>Today (opened, UTC):</b> <b>{wins}W / {losses}L ({win_rate:.1f}% Win Rate)</b>\n"
-            f"{carry_line}"
-            f"• <b>Yesterday:</b> {_fmt_day(yesterday)}\n"
-            f"• <b>Today's PnL (opened today):</b> <b>{day_pnl:+.2f} USD</b>\n"
-            f"⏱ <i>{datetime.now(timezone.utc).strftime('%H:%M:%S UTC')}</i>"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎯 <b>Asset:</b> <code>{symbol}</code> ({direction})\n"
+            f"{pnl_line}  |  ⏱ <b>Hold:</b> {dur_str}\n"
+            f"📍 <b>Entry ➔ Exit:</b> <code>{entry_price:.4f}</code> ➔ <code>{exit_price:.4f}</code>\n"
+            f"💼 <b>Updated Balance:</b> <b>${balance:.2f} USD</b>\n"
+            f"🔥 <b>Win Streak:</b> {streak_str}\n\n"
+            f"📊 <b>TODAY'S RECORD (IST)</b>\n"
+            f"• <b>Trades:</b> {total_trades} ({wins}W / {losses}L)\n"
+            f"• <b>Win Rate:</b> <b>{win_rate:.1f}%</b>\n"
+            f"• <b>Today's Net PnL:</b> <b>{day_pnl:+.2f} USD</b> {pnl_badge}\n"
+            f"⏰ <i>{ist_time} (Contract #{cid})</i>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━"
         )
         await self.send_message(msg)
 
     async def notify_daily_summary(self, day: Dict[str, Any],
                                    all_time: Optional[Dict[str, Any]] = None,
                                    settled: Optional[Dict[str, Any]] = None) -> None:
-        """Formats the end-of-day (UTC rollover) summary for the completed day."""
+        """Formats the end-of-day summary for the completed IST day (12:00 AM Midnight IST)."""
         if not self._ensure_enabled():
             return
 
@@ -250,35 +243,33 @@ class TelegramNotifier:
         avg = (pnl / n) if n else 0.0
         mark = "🟢" if pnl >= 0 else "🔴"
         allt = all_time or {}
-        settled = settled or {}
-        cash = _cash_line({"total_trades": n, "wins": wins, "losses": losses,
-                           "pnl": pnl}, settled, label="that day")
-        carry_line = f"• <b>{cash}</b>\n" if cash else ""
+        ist_time = _ist_now_str("%I:%M %p IST")
+        day_date = day.get('date', 'today')
 
         all_line = ""
         if allt.get("total_trades"):
             all_line = (f"• <b>All-time Journal:</b> {allt.get('total_trades', 0)} Trades | "
-                        f"{allt.get('win_rate', 0.0):.1f}% | {allt.get('pnl', 0.0):+.2f} USD\n")
+                        f"{allt.get('win_rate', 0.0):.1f}% WR | {allt.get('pnl', 0.0):+.2f} USD\n")
 
         msg = (
-            f"🗓 <b>DAILY SUMMARY — {day.get('date', 'previous day')} (UTC)</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"• <b>Trades Opened:</b> <b>{n} ({wins}W / {losses}L)</b>\n"
-            f"• <b>Win Rate:</b> <b>{wr:.1f}%</b> (breakeven ~53% at this payout)\n"
-            f"• <b>Net PnL:</b> <b>{pnl:+.2f} USD</b> {mark}\n"
-            f"• <b>Average per Trade:</b> {avg:+.3f} USD\n"
-            f"{carry_line}"
+            f"🗓 <b>DAILY SUMMARY — {day_date} (IST)</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• <b>Total Trades:</b> <b>{n} ({wins}W / {losses}L)</b>\n"
+            f"• <b>Daily Win Rate:</b> <b>{wr:.1f}%</b>\n"
+            f"• <b>Daily Net PnL:</b> <b>{pnl:+.2f} USD</b> {mark}\n"
+            f"• <b>Average per Trade:</b> <b>{avg:+.3f} USD</b>\n"
             f"{all_line}"
-            f"⏱ <i>Day closed {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}</i>"
+            f"⏰ <i>Closed at 12:00 AM Midnight IST ({ist_time})</i>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━"
         )
         await self.send_message(msg)
 
     async def notify_engine_audit(self, audit: Dict[str, Any]) -> None:
-        """Formats and dispatches the 15-minute Periodic Live Engine Audit Update."""
+        """Formats and dispatches the 15-minute Periodic Live Engine Audit Update in IST."""
         if not self._ensure_enabled():
             return
 
-        ts = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+        ist_time = _ist_now_str("%I:%M %p IST")
         open_pos = audit.get("open_positions", 0)
         balance = audit.get("balance", 0.0)
         total_trades = audit.get("total_trades", 0)
@@ -287,34 +278,24 @@ class TelegramNotifier:
         win_rate = (wins / total_trades * 100.0) if total_trades > 0 else 0.0
         day_pnl = audit.get("day_pnl", 0.0)
         win_streak = audit.get("win_streak", 0)
-        day_label = audit.get("day_label", "today")
-        yesterday = audit.get("yesterday") or {}
-        settled = audit.get("settled_today") or {}
-        all_time = audit.get("all_time") or {}
         pnl_mark = audit.get("pnl_mark") or ("🟢" if day_pnl >= 0 else "🔴")
         symbol_count = audit.get("symbol_count", 0)
         loss_clamp = audit.get("loss_clamp", 4)
-        cash = _cash_line({"total_trades": total_trades, "wins": wins,
-                           "losses": losses, "pnl": day_pnl}, settled)
-        carry_line = f"• <b>{cash}</b>\n" if cash else ""
 
         msg = (
-            f"📊 <b>LIVE ENGINE AUDIT UPDATE (15-Min Report)</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"• <b>Scan Engine Status:</b> {ts} bar close nominal across {symbol_count} symbols\n"
-            f"• <b>Active Open Contracts:</b> <b>{open_pos}</b>\n"
-            f"• <b>Current Account Balance:</b> <b>${balance:.2f} USD</b>\n"
-            f"• <b>Today (opened, UTC, {day_label}):</b> <b>{total_trades} Trades ({wins}W / {losses}L)</b>\n"
-            f"• <b>Today's Win Rate:</b> <b>{win_rate:.1f}%</b> (breakeven ~53% at this payout)\n"
-            f"• <b>Today's PnL (opened today):</b> <b>{day_pnl:+.2f} USD</b> {pnl_mark}\n"
-            f"{carry_line}"
-            f"• <b>Yesterday:</b> {_fmt_day(yesterday)}\n"
-            f"• <b>All-time Journal:</b> {all_time.get('total_trades', 0)} Trades "
-            f"({all_time.get('wins', 0)}W / {all_time.get('losses', 0)}L) | "
-            f"{all_time.get('win_rate', 0.0):.1f}% | {all_time.get('pnl', 0.0):+.2f} USD\n"
-            f"• <b>Active Win Streak:</b> {win_streak} Consecutive Wins\n"
-            f"• <b>Loss Clamp:</b> {loss_clamp} consecutive losses → cooldown\n"
-            f"• <b>Active Filters:</b> regime + ATR gates, Rise/Fall edge guard\n"
-            f"• <b>System Health:</b> Streaming continuous 1m bars cleanly"
+            f"🤖 <b>DERIV BOT — 15-MIN STATUS</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"⏰ <b>Time:</b> {ist_time} | <b>Mode:</b> HYBRID\n"
+            f"💼 <b>Account Balance:</b> <b>${balance:.2f} USD</b>\n"
+            f"⚡ <b>Active Positions:</b> <b>{open_pos} open</b>\n\n"
+            f"📊 <b>TODAY'S PERFORMANCE (IST)</b>\n"
+            f"• <b>Trades:</b> <b>{total_trades} ({wins}W / {losses}L)</b>\n"
+            f"• <b>Win Rate:</b> <b>{win_rate:.1f}%</b>\n"
+            f"• <b>Today's Net PnL:</b> <b>{day_pnl:+.2f} USD</b> {pnl_mark}\n"
+            f"• <b>Active Win Streak:</b> 🔥 {win_streak} consecutive\n\n"
+            f"🛡️ <b>SYSTEM & RISK HEALTH</b>\n"
+            f"• <b>Scanning:</b> {symbol_count} / {symbol_count} Instruments Nominal\n"
+            f"• <b>Protection:</b> Active (Edge Guard, Loss Clamp ≤ {loss_clamp})\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━"
         )
         await self.send_message(msg)
