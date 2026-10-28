@@ -286,6 +286,21 @@ class StrategyEngine:
         atr_val = max(1e-9, float(last["atr"]))
         macd_rel = float(last["macd_hist"]) / atr_val
 
+        # Candle Body Ratio: Directional Momentum & Conviction Gate
+        # Eliminates wick-heavy indecision candles, spinning tops, and doji traps
+        c_open = float(last.get("open", 0.0))
+        c_close = float(last.get("close", 0.0))
+        c_high = float(last.get("high", 0.0))
+        c_low = float(last.get("low", 0.0))
+        candle_range = max(1e-9, c_high - c_low)
+        body_ratio = abs(c_close - c_open) / candle_range
+
+        # Rise/Fall requires a solid momentum block (Body Ratio >= 0.45).
+        # Multipliers maintain flexible entry (0.30) so they can trade 24/7.
+        min_body_ratio = 0.45 if contract_type == "rise_fall" else 0.30
+        if body_ratio < min_body_ratio:
+            return None
+
         direction = None
         # High-Conviction Confluence Entry (req_score >= 3.0 requires concordant indicators):
         req_score = max(3.0, float(params.min_score))
@@ -359,6 +374,7 @@ class StrategyEngine:
                     ("rsi", "atr", "adx", "bb_pctb", "macd_hist", "ema_fast", "ema_slow",
                      "ema_trend", "ema_higher_tf", "atr_pctile")}
         snapshot["close"] = float(last["close"])
+        snapshot["body_ratio"] = float(body_ratio)
 
         dyn_dur, dyn_reason = calculate_dynamic_duration(symbol, asset_class, last, regime)
 
