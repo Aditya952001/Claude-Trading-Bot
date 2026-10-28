@@ -41,7 +41,7 @@ log = logging.getLogger("learning")
 PARAM_BOUNDS = {
     "rsi_long_max": (58.0, 72.0),
     "rsi_short_min": (28.0, 42.0),
-    "min_score": (2.5, 4.0),
+    "min_score": (3.0, 4.5),
     "component_weight": (0.3, 1.5),
     "asset_weight": (0.25, 1.0),
 }

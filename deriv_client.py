@@ -21,7 +21,7 @@ import logging
 import time
 import urllib.request
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
 
 import pandas as pd
 import websockets
@@ -324,10 +324,11 @@ class DerivClient:
         msg = await self._request({"balance": 1})
         return float(msg["balance"]["balance"])
 
-    async def get_candles(self, symbol: str, granularity: int, count: int) -> List[dict]:
+    async def get_candles(self, symbol: str, granularity: int, count: int,
+                          end: Union[str, int] = "latest") -> List[dict]:
         msg = await self._request({
             "ticks_history": symbol, "adjust_start_time": 1, "count": count,
-            "end": "latest", "start": 1, "style": "candles", "granularity": granularity,
+            "end": end, "start": 1, "style": "candles", "granularity": granularity,
         })
         return msg.get("candles", [])
 
