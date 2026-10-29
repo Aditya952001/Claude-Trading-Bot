@@ -112,9 +112,19 @@ CREATE TABLE IF NOT EXISTS loss_post_mortems (
 class MemoryStore:
     def __init__(self, db_path: str):
         self._lock = threading.RLock()
-        self._db = sqlite3.connect(db_path, check_same_thread=False)
+        self._db = sqlite3.connect(db_path, timeout=30.0, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
-        self._db.execute("PRAGMA journal_mode=WAL")
+        try:
+            self._db.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.OperationalError:
+            try:
+                self._db.execute("PRAGMA journal_mode=DELETE")
+            except Exception:
+                pass
+        try:
+            self._db.execute("PRAGMA busy_timeout = 30000")
+        except Exception:
+            pass
         self._db.executescript(SCHEMA)
         try:
             self._db.execute("ALTER TABLE trades ADD COLUMN contract_type TEXT DEFAULT 'multiplier'")
