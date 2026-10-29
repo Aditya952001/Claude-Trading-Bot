@@ -174,7 +174,7 @@ class RiskConfig:
     target_daily_profit: float = 0.05       # halt for the day at +5% realized profit (0 to disable)
     max_total_open_risk: float = 0.03       # sum of risk across open trades
     max_open_positions: int = 3
-    max_trades_per_day: int = 30
+    max_trades_per_day: int = 200
     max_consecutive_losses: int = 4
     loss_cooldown_minutes: int = 10         # 10m cooldown
     symbol_cooldown_bars: int = 3
@@ -317,7 +317,7 @@ class Config:
             max_stake=float(os.getenv("MAX_STAKE", RiskConfig.max_stake)),
             fixed_stake=float(os.getenv("FIXED_STAKE", "1.0")),
             max_open_positions=int(os.getenv("MAX_OPEN_POSITIONS", RiskConfig.max_open_positions)),
-            max_trades_per_day=int(os.getenv("MAX_TRADES_PER_DAY", RiskConfig.max_trades_per_day)),
+            max_trades_per_day=max(200, int(os.getenv("MAX_TRADES_PER_DAY", 200))),
             reward_risk=float(os.getenv("REWARD_RISK", RiskConfig.reward_risk)),
             max_consecutive_losses=int(os.getenv("MAX_CONSECUTIVE_LOSSES", RiskConfig.max_consecutive_losses)),
             dynamic_profit_enabled=os.getenv("DYNAMIC_PROFIT_ENABLED", "true").lower() in ("true", "1", "yes"),
