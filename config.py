@@ -196,7 +196,7 @@ class RiskConfig:
     # history proves a positive edge: the 95% Wilson lower bound of the win rate
     # must sit above the payout breakeven. With n < rf_edge_min_trades it allows
     # exploration at the fixed (minimum) stake.
-    rf_edge_guard: bool = True
+    rf_edge_guard: bool = False
     rf_edge_min_trades: int = 40
     rf_edge_symbol_min_trades: int = 20
     rf_edge_lookback: int = 120
@@ -335,7 +335,7 @@ class Config:
             cut_on_opposing_signal=os.getenv("CUT_ON_OPPOSING_SIGNAL", "true").lower() in ("true", "1", "yes"),
             tighten_loss_bars=int(os.getenv("TIGHTEN_LOSS_BARS", RiskConfig.tighten_loss_bars)),
             adverse_tick_cut=os.getenv("ADVERSE_TICK_CUT", "true").lower() in ("true", "1", "yes"),
-            rf_edge_guard=os.getenv("RF_EDGE_GUARD_ENABLED", "true").lower() in ("true", "1", "yes"),
+            rf_edge_guard=os.getenv("RF_EDGE_GUARD_ENABLED", "false").lower() in ("true", "1", "yes"),
             rf_edge_min_trades=int(os.getenv("RF_EDGE_MIN_TRADES", RiskConfig.rf_edge_min_trades)),
             rf_edge_symbol_min_trades=int(os.getenv("RF_EDGE_SYMBOL_MIN_TRADES", RiskConfig.rf_edge_symbol_min_trades)),
             confidence_staking=os.getenv("CONFIDENCE_STAKING", "false").lower() in ("true", "1", "yes"),
